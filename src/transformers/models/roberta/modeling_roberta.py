@@ -72,9 +72,14 @@ class RobertaEmbeddings(nn.Module):
     # Copied from transformers.models.bert.modeling_bert.BertEmbeddings.__init__
     def __init__(self, config):
         super().__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
-        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
+        if config.use_torch_amp_bfloat16:
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id, dtype=torch.bfloat16)
+            self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size, dtype=torch.bfloat16)
+            self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size, dtype=torch.bfloat16)
+        else:
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
+            self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+            self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
 
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
@@ -92,9 +97,14 @@ class RobertaEmbeddings(nn.Module):
 
         # End copy
         self.padding_idx = config.pad_token_id
-        self.position_embeddings = nn.Embedding(
-            config.max_position_embeddings, config.hidden_size, padding_idx=self.padding_idx
-        )
+        if config.use_torch_amp_bfloat16:
+            self.position_embeddings = nn.Embedding(
+                config.max_position_embeddings, config.hidden_size, padding_idx=self.padding_idx, dtype=torch.bfloat16
+            )
+        else:
+            self.position_embeddings = nn.Embedding(
+                config.max_position_embeddings, config.hidden_size, padding_idx=self.padding_idx
+            )
 
     def forward(
         self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None, past_key_values_length=0
@@ -178,7 +188,10 @@ class RobertaSelfAttention(nn.Module):
         )
         if self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query":
             self.max_position_embeddings = config.max_position_embeddings
-            self.distance_embedding = nn.Embedding(2 * config.max_position_embeddings - 1, self.attention_head_size)
+            if config.use_torch_amp_bfloat16:
+                self.distance_embedding = nn.Embedding(2 * config.max_position_embeddings - 1, self.attention_head_size, dtype=torch.bfloat16)
+            else:
+                self.distance_embedding = nn.Embedding(2 * config.max_position_embeddings - 1, self.attention_head_size)
 
         self.is_decoder = config.is_decoder
 

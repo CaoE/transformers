@@ -200,9 +200,14 @@ class AlbertEmbeddings(nn.Module):
 
     def __init__(self, config: AlbertConfig):
         super().__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=config.pad_token_id)
-        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.embedding_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.embedding_size)
+        if config.use_torch_amp_bfloat16:
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=config.pad_token_id, dtype=torch.bfloat16)
+            self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.embedding_size, dtype=torch.bfloat16)
+            self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.embedding_size, dtype=torch.bfloat16)
+        else:
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=config.pad_token_id)
+            self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.embedding_size)
+            self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.embedding_size)
 
         # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
         # any TensorFlow checkpoint file
@@ -289,7 +294,10 @@ class AlbertAttention(nn.Module):
         self.position_embedding_type = getattr(config, "position_embedding_type", "absolute")
         if self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query":
             self.max_position_embeddings = config.max_position_embeddings
-            self.distance_embedding = nn.Embedding(2 * config.max_position_embeddings - 1, self.attention_head_size)
+            if config.use_torch_amp_bfloat16:
+                self.distance_embedding = nn.Embedding(2 * config.max_position_embeddings - 1, self.attention_head_size, dtype=torch.bfloat16)
+            else:
+                self.distance_embedding = nn.Embedding(2 * config.max_position_embeddings - 1, self.attention_head_size)
 
     # Copied from transformers.models.bert.modeling_bert.BertSelfAttention.transpose_for_scores
     def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
@@ -727,7 +735,10 @@ class AlbertModel(AlbertPreTrainedModel):
                 token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=device)
 
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        extended_attention_mask = extended_attention_mask.to(dtype=self.dtype)  # fp16 compatibility
+        if self.config.use_torch_amp_bfloat16:
+            extended_attention_mask = extended_attention_mask.to(dtype=torch.bfloat16)
+        else:
+            extended_attention_mask = extended_attention_mask.to(dtype=self.dtype)  # fp16 compatibility
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 

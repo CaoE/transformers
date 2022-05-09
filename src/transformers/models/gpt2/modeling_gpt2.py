@@ -671,9 +671,12 @@ class GPT2Model(GPT2PreTrainedModel):
         super().__init__(config)
 
         self.embed_dim = config.hidden_size
-
-        self.wte = nn.Embedding(config.vocab_size, self.embed_dim)
-        self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim)
+        if config.use_torch_amp_bfloat16:
+            self.wte = nn.Embedding(config.vocab_size, self.embed_dim, dtype=torch.bfloat16)
+            self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim, dtype=torch.bfloat16)
+        else:
+            self.wte = nn.Embedding(config.vocab_size, self.embed_dim)
+            self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim)
 
         self.drop = nn.Dropout(config.embd_pdrop)
         self.h = nn.ModuleList([GPT2Block(config, layer_idx=i) for i in range(config.num_hidden_layers)])
@@ -808,7 +811,10 @@ class GPT2Model(GPT2PreTrainedModel):
             # positions we want to attend and -10000.0 for masked positions.
             # Since we are adding it to the raw scores before the softmax, this is
             # effectively the same as removing these entirely.
-            attention_mask = attention_mask.to(dtype=self.dtype)  # fp16 compatibility
+            if self.config.use_torch_amp_bfloat16:
+                attention_mask = attention_mask.to(torch.bfloat16)
+            else:
+                attention_mask = attention_mask.to(dtype=self.dtype)  # fp16 compatibility
             attention_mask = (1.0 - attention_mask) * -10000.0
 
         # If a 2D or 3D attention mask is provided for the cross-attention

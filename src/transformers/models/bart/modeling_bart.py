@@ -122,11 +122,14 @@ class BartLearnedPositionalEmbedding(nn.Embedding):
     This module learns positional embeddings up to a fixed maximum size.
     """
 
-    def __init__(self, num_embeddings: int, embedding_dim: int):
+    def __init__(self, num_embeddings: int, embedding_dim: int, use_torch_amp_bfloat16: bool):
         # Bart is set up so that if padding_idx is specified then offset the embedding ids by 2
         # and adjust num_embeddings appropriately. Other models don't have this hack
         self.offset = 2
-        super().__init__(num_embeddings + self.offset, embedding_dim)
+        if use_torch_amp_bfloat16:
+            super().__init__(num_embeddings + self.offset, embedding_dim, dtype=torch.bfloat16)
+        else:
+            super().__init__(num_embeddings + self.offset, embedding_dim)
 
     def forward(self, input_ids_shape: torch.Size, past_key_values_length: int = 0):
         """`input_ids_shape` is expected to be [bsz x seqlen]."""
@@ -710,11 +713,15 @@ class BartEncoder(BartPretrainedModel):
         if embed_tokens is not None:
             self.embed_tokens = embed_tokens
         else:
-            self.embed_tokens = nn.Embedding(config.vocab_size, embed_dim, self.padding_idx)
+            if config.use_torch_amp_bfloat16:
+                self.embed_tokens = nn.Embedding(config.vocab_size, embed_dim, self.padding_idx, dtype=torch.bfloat16)
+            else:
+                self.embed_tokens = nn.Embedding(config.vocab_size, embed_dim, self.padding_idx)
 
         self.embed_positions = BartLearnedPositionalEmbedding(
             config.max_position_embeddings,
             embed_dim,
+            config.use_torch_amp_bfloat16
         )
         self.layers = nn.ModuleList([BartEncoderLayer(config) for _ in range(config.encoder_layers)])
         self.layernorm_embedding = nn.LayerNorm(embed_dim)
@@ -881,11 +888,15 @@ class BartDecoder(BartPretrainedModel):
         if embed_tokens is not None:
             self.embed_tokens = embed_tokens
         else:
-            self.embed_tokens = nn.Embedding(config.vocab_size, config.d_model, self.padding_idx)
+            if config.use_torch_amp_bfloat16:
+                self.embed_tokens = nn.Embedding(config.vocab_size, config.d_model, self.padding_idx, dtype=torch.bfloat16)
+            else:
+                self.embed_tokens = nn.Embedding(config.vocab_size, config.d_model, self.padding_idx)
 
         self.embed_positions = BartLearnedPositionalEmbedding(
             config.max_position_embeddings,
             config.d_model,
+            config.use_torch_amp_bfloat16
         )
         self.layers = nn.ModuleList([BartDecoderLayer(config) for _ in range(config.decoder_layers)])
         self.layernorm_embedding = nn.LayerNorm(config.d_model)
@@ -1143,7 +1154,10 @@ class BartModel(BartPretrainedModel):
         super().__init__(config)
 
         padding_idx, vocab_size = config.pad_token_id, config.vocab_size
-        self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx)
+        if config.use_torch_amp_bfloat16:
+            self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx, dtype=torch.bfloat16)
+        else:
+            self.shared = nn.Embedding(vocab_size, config.d_model, padding_idx)
 
         self.encoder = BartEncoder(config, self.shared)
         self.decoder = BartDecoder(config, self.shared)

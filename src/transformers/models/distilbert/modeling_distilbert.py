@@ -93,8 +93,12 @@ def _create_sinusoidal_embeddings(n_pos: int, dim: int, out: torch.Tensor):
 class Embeddings(nn.Module):
     def __init__(self, config: PretrainedConfig):
         super().__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.pad_token_id)
-        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.dim)
+        if config.use_torch_amp_bfloat16:
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.pad_token_id, dtype=torch.bfloat16)
+            self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.dim, dtype=torch.bfloat16)
+        else:
+            self.word_embeddings = nn.Embedding(config.vocab_size, config.dim, padding_idx=config.pad_token_id)
+            self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.dim)
         if config.sinusoidal_pos_embds:
             create_sinusoidal_embeddings(
                 n_pos=config.max_position_embeddings, dim=config.dim, out=self.position_embeddings.weight
@@ -558,7 +562,8 @@ class DistilBertModel(DistilBertPreTrainedModel):
 
         if attention_mask is None:
             attention_mask = torch.ones(input_shape, device=device)  # (bs, seq_length)
-
+        if self.config.use_torch_amp_bfloat16:
+            attention_mask = attention_mask.to(torch.bfloat16)
         # Prepare head mask if needed
         head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
 
